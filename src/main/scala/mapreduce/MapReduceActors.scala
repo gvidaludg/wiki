@@ -14,6 +14,7 @@ case class executeMapping[A](input: A)
 case class totalMappings(count: Int)
 case class doneMapping[K, C](mappings: Iterable[(K, C)])
 case class doneReducing[K, C](mappings: mutable.Map[K, C])
+case class noMoreWork(workcount: Int)
 
 class Mapper[K, A, B, C](compute: A => Iterable[B], keyMapper: B => K, valueMapper: B => C) extends Actor {
     def receive: Receive = {
@@ -40,7 +41,6 @@ abstract class Reducer[K, A, B, C](reducer: (C, C) => C) extends Actor {
 
         if (isFinished) {
             sendResult(reduced)
-            context.stop(self)
         }
 
     }
@@ -80,18 +80,16 @@ class NodeReducer[K, A, B, C](
                                  keyMapper: B => K,
                                  valueMapper: B => C,
                                  reducer: (C, C) => C,
-                                 nmappers: Int
+                                 mappers: Seq[ActorRef]
                              ) extends Reducer[K, A, B, C](reducer) {
-
-    val mappers: Seq[ActorRef] = for (i <- 0 until nmappers) yield {
-        context.actorOf(Props(new Mapper(compute, keyMapper, valueMapper)), "mapper" + i)
-    }
 
     var offset = 0
 
     var remainingProcesses = 0
     var totalMappings = 0
     var currentMappings = 0
+    var remainingWork = 0
+    var noMoreWork = false
 
     override def processMapReduce(input: Iterable[A]): Unit = {
 
@@ -101,9 +99,11 @@ class NodeReducer[K, A, B, C](
             offset += 1
         }
 
+        remainingWork -= 1
+
     }
 
-    override def isFinished: Boolean = remainingProcesses == 0 && totalMappings == currentMappings
+    override def isFinished: Boolean = noMoreWork && remainingWork == 0 && remainingProcesses == 0 && totalMappings == currentMappings
 
     override def done(mappings: Iterable[(K, C)]): Unit = {
         currentMappings += 1
@@ -117,6 +117,11 @@ class NodeReducer[K, A, B, C](
             remainingProcesses -= 1
             totalMappings += count
 
+            checkFinished()
+
+        case noMoreWork(workcount: Int) =>
+            noMoreWork = true
+            remainingWork += workcount
             checkFinished()
 
     }
@@ -135,8 +140,12 @@ class RootReducer[K, A, B, C](
                                  nreducers: Int
                              ) extends Reducer[K, A, B, C](reducer) {
 
+    val mappers: Seq[ActorRef] = for (i <- 0 until nmappers) yield {
+        context.actorOf(Props(new Mapper(compute, keyMapper, valueMapper)), "mapper" + i)
+    }
+
     val nodeReducers: Seq[ActorRef] = for (i <- 0 until nreducers) yield {
-        context.actorOf(Props(new NodeReducer(compute, keyMapper, valueMapper, reducer, nmappers)), "mapper" + i)
+        context.actorOf(Props(new NodeReducer(compute, keyMapper, valueMapper, reducer, mappers)), "reducer" + i)
     }
 
     var offset = 0
@@ -147,13 +156,19 @@ class RootReducer[K, A, B, C](
 
         val initial = offset
 
+        val workcounts = nodeReducers.indices.map(_ => 0).to(mutable.Seq)
+
         for (inp <- input) {
-            nodeReducers(offset % nodeReducers.length) ! executeMapReduce(Iterable(inp))
+            val index = offset % nodeReducers.size
+            nodeReducers(index) ! executeMapReduce(Iterable(inp))
+            workcounts(index) += 1
             offset += 1
         }
 
-        val reducersUsed = Math.min(offset - initial, nodeReducers.length)
-        nodeReducersRemaining += reducersUsed
+        nodeReducersRemaining = nodeReducers.size
+        for ((workcount, reducer) <- workcounts.zip(nodeReducers)) {
+            reducer ! noMoreWork(workcount)
+        }
 
     }
 
@@ -171,14 +186,20 @@ class RootReducer[K, A, B, C](
 
 object MapReduce {
 
+    var nmappers: Int = 4
+    var nreducers: Int = 4
+
+    def setCounters(nmappers: Int, nreducers: Int): Unit = {
+        this.nmappers = nmappers
+        this.nreducers = nreducers
+    }
+
     def groupMapReduce[K, A, B, C](
                                    input: Iterable[A],
                                    compute: A => Iterable[B],
                                    key: B => K,
                                    mapper: B => C,
                                    reducer: (C, C) => C,
-                                   nmappers: Int = 16,
-                                   nreducers: Int = 16
     ): Map[K, C] = {
 
         val system = ActorSystem("map-reduce-system")

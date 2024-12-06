@@ -1,0 +1,124 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[catalan]{babel}
+\usepackage{listings}
+
+\lstset{basicstyle=\ttfamily}
+
+\begin{document}
+
+\title{Similitud entre documents (Part II)}
+\author{Guillem Vidal}
+\maketitle
+
+\section{Introducció}
+
+M'ha semblat adient modificar el \lstinline{MapReduce} per tal d'optimitzar més
+les operacions, i fer-lo més genèric de manera que pogués acceptar més diversitat
+de tipus.
+
+La funció que genera tot el funcionament amb actors es diu \lstinline{groupMapReduce},
+i té la següent signatura:
+
+\begin{lstlisting}
+def groupMapReduce[K, A, B, C](
+	input: Iterable[A],
+	compute: A => Iterable[B],
+	key: B => K,
+	mapper: B => C,
+	reducer: (C, C) => C,
+	nmappers: Int = 16,
+	nreducers: Int = 16
+): Map[K, C]
+\end{lstlisting}
+
+El paràmetre \lstinline{compute} és redundant: permet que durant el mapeig es
+generi una sèrie de valors a agrupar i reduir, que no sigui una relació 1 a 1
+amb l'input, sinó 1 a N (opcionalment).
+
+Això és útil quan hem de calcular les aparicions de les paraules en els
+documents, per exemple, ja que podem passar com a input els documents i generar
+totes les combinacions a dins del \lstinline{groupMapReduce} aprofitant les
+seves aptituds de paral·lelisme.
+
+\section{Demostracions}
+
+\subsection{La funció \lstinline{timeMeasurement}}
+
+L'he definida de la següent manera:
+
+\begin{lstlisting}
+def timeMeasurement[A](
+	compute: Unit => A,
+	name: String = "Function"
+): A = {
+
+	val beg = System.currentTimeMillis()
+
+	val ret = compute()
+
+	val end = System.currentTimeMillis()
+
+	val elapsed = (end - beg).toFloat / 1000;
+	println(s"$name took $elapsed seconds!")
+
+	return ret
+}
+\end{lstlisting}
+
+No he volgut utilitzar la sintaxi especial per l'avaluació \emph{lazy} de les
+expressions, perquè m'agrada la claredat que el que s'està enviant és una
+expressió, no el valor d'aquesta.
+
+\subsection{Nombre promig de referències}
+
+\begin{verbatim}
+112 references on average.
+\end{verbatim}
+
+\subsection{\emph{Query} de recomanació mitjançant PR}
+
+Si busquem per 'Guerra', aquests són els primers resultats:
+
+\begin{verbatim}
+Natal (Rio Grande do Norte),
+Heinkel He 280,
+Fokker F.VII,
+Raymond Collishaw,
+Yokosuka MXY-7,
+Diàspora basca,
+Països àrabs,
+Edat Contemporània als Països Catalans,
+Història de Bielorússia,
+...
+\end{verbatim}
+
+\subsection{Pàgines que s'assemblen sense referenciar-se}
+
+Donada una \emph{query} de 'Guerra' i agafant els 100 primers elements retornats,
+obtinc els següents resultats:
+
+\begin{verbatim}
+(Economia de la Unió Soviètica, Èxode rural),
+(Història d'Estònia, Èxode rural),
+(Persona desplaçada, Èxode rural),
+(Feixisme italià, Èxode rural),
+(Història d'Amèrica, Èxode rural),
+(Llista de diàspores, Èxode rural),
+...
+\end{verbatim}
+
+\subsection{Eficiència}
+
+\begin{tabular}{|c|c|c|c|c|}
+	\hline
+	\textbf{Mappers} & \textbf{Reducers} & \textbf{Load} & \textbf{Query} & \textbf{Similar} \\
+	\hline
+	1 & 1 & 15.437 & 0.61 & 1.677 \\
+	2 & 2 & 8.594 & 0.615 & 2.23 \\
+	4 & 4 & 8.667 & 0.957 & 3.873 \\
+	8 & 8 & 10.37 & 1.067 & 2.286 \\
+	\hline
+\end{tabular}
+
+\end{document}

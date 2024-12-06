@@ -27,9 +27,7 @@ case class SimilarPages(wiki: Map[String, WikiContents], wordcount: Int) {
                 val (_, index) = keyval
                 BitSet() + index
             },
-            (lhs: BitSet, rhs: BitSet) => lhs.concat(rhs),
-            16,
-            16
+            (lhs: BitSet, rhs: BitSet) => lhs.concat(rhs)
         )
 
         return appearances.view.mapValues(bits => bits.count(_ => true)).toMap

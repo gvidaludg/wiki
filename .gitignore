@@ -1,6 +1,7 @@
 
 .idea/
 target
+
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.lof

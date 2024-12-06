@@ -33,7 +33,7 @@ case class SimilarPages(wiki: Map[String, WikiContents], wordcount: Int) {
         return appearances.view.mapValues(bits => bits.count(_ => true)).toMap
     }
 
-    def topNonReferenced(query: String, limit: Int = 100): List[(String, String)] = {
+    def topNonReferenced(query: String, limit: Int = 1000): List[(String, String)] = {
 
         val documents = QueryDocument(wiki, wordcount).query(query)
             .slice(0, limit)

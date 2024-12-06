@@ -186,8 +186,8 @@ class RootReducer[K, A, B, C](
 
 object MapReduce {
 
-    var nmappers: Int = 4
-    var nreducers: Int = 4
+    var nmappers: Int = 16
+    var nreducers: Int = 16
 
     def setCounters(nmappers: Int, nreducers: Int): Unit = {
         this.nmappers = nmappers
